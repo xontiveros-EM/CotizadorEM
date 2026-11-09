@@ -1,43 +1,52 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
-
+name: Publicar Cotizador EM
 on:
-  # Runs on pushes targeting the default branch
-  push:
-    branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
-
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+    inputs:
+      confirmar_publicacion:
+        description: 'Confirmo publicar la web de EM Agency'
+        required: true
+        default: false
+        type: boolean
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
-  group: "pages"
+  group: cotizador-em-pages
   cancel-in-progress: false
-
 jobs:
-  # Single deploy job since we're just deploying
+  build:
+    if: ${{ inputs.confirmar_publicacion == true }}
+    runs-on: ubuntu-latest
+    env:
+      VITE_SUPABASE_URL: https://xguieynlzqutjhehqdnk.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_sb0sEJxUFZPlYeWwOlPYmg_2hK22ybM
+      VITE_EXPECTED_SUPABASE_PROJECT_REF: xguieynlzqutjhehqdnk
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Instalar
+        run: npm ci
+      - name: Probar
+        run: npm test
+      - name: Construir
+        run: npm run build -- --base=/CotizadorEM/
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: dist
   deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          # Upload entire repository
-          path: '.'
-      - name: Deploy to GitHub Pages
+      - name: Publicar
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+
