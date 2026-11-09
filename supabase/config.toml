@@ -1,0 +1,4 @@
+project_id = "cotizador-em-agency-local"
+
+[functions.quote-documents]
+verify_jwt = true

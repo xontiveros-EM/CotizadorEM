@@ -1,0 +1,1 @@
+try { await import('./verify.mjs'); } catch (error) { console.error(JSON.stringify({message:error.message,code:error.code,detail:error.detail,position:error.position,where:error.where}));process.exitCode=1; }
