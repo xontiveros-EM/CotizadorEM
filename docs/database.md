@@ -1,67 +1,66 @@
-# Base de datos de EM Agency
+# Base de datos de EM Agency — V3
 
-Esquema preparado para un proyecto Supabase **nuevo y vacío** de xontiveros-EM. No se ha aplicado en ningún servicio externo.
+Proyecto previsto: xguieynlzqutjhehqdnk. No se deben ejecutar estos scripts en TSI/Tanabi.
 
-## Alta del proyecto y equipo
+## Actualización e instalación
 
-1. Verificar que la conexión pertenece a xontiveros-EM y seleccionar su proyecto nuevo.
-2. Revisar y ejecutar supabase/schema.sql una sola vez desde el editor SQL. Todo el esquema se crea en una transacción.
-3. Invitar al usuario inicial desde Auth y consultar su UUID. La dirección de Google proporcionada para la hoja no se usa automáticamente como identidad de Supabase.
-4. Dar acceso al UUID confirmado con esta instrucción, sustituyendo el marcador por el UUID real:
+- Base existente: ejecutar únicamente manual/actualizar-cotizador-v3.sql.
+- Proyecto nuevo y vacío: ejecutar supabase/schema.sql una vez y después manual/actualizar-cotizador-v3.sql.
+- No repetir el esquema original sobre tablas existentes. El script V3 sí es repetible y no reinicia contadores.
+- El acceso requiere un usuario de Supabase Auth y su UUID activo en private.staff_members. Crear una cuenta no otorga membresía automáticamente.
 
-~~~sql
-insert into private.staff_members(user_id)
-values ('UUID-REAL-DEL-USUARIO'::uuid);
-~~~
-
-No basta con crear una cuenta en Auth: el usuario debe estar en el equipo autorizado. Todos los miembros activos comparten el catálogo y las cotizaciones de esta única agencia.
-
-Para retirar acceso, establecer active=false en private.staff_members. Las reglas comprueban la membresía en cada lectura y operación; no dependen de información editable del perfil.
+Los integrantes activos comparten el espacio interno de EM Agency. Retirar la membresía impide nuevas lecturas y operaciones aunque el usuario conserve una sesión.
 
 ## Datos y permisos
 
-Las siete tablas públicas tienen reglas de acceso por equipo: company_settings, instagram_accounts, rates, quotes, quote_items, quote_events y sheet_sync. El catálogo admite perfiles sin tarifas y seguidores desconocidos como null.
+RLS protege las siete tablas públicas: company_settings, instagram_accounts, rates, quotes, quote_items, quote_events y sheet_sync. private.document_counters conserva las series oficiales y no tiene acceso directo desde el cliente.
 
-Los miembros pueden importar cuentas y tarifas y cambiar nombre, logo, vigencia y condiciones. No pueden insertar ni alterar directamente folios, conceptos, totales, impuestos o historial. La moneda queda fijada en MXN y el impuesto en cero.
+El cliente puede importar catálogo y cambiar los campos autorizados de marca. No puede insertar ni modificar directamente totales, folios, OC, vendedor histórico, conceptos ni eventos. Las operaciones públicas son funciones security invoker que llaman implementaciones privadas con comprobación explícita de usuario y membresía, permisos mínimos y search_path vacío.
 
-Los folios usan una secuencia de PostgreSQL y una restricción UNIQUE. Se asigna COT-AAAA-000001 con el año de Ciudad de México y un consecutivo global. La secuencia no se reinicia en enero; pueden existir huecos y los folios nunca se reciclan.
+La moneda es MXN, el impuesto calculado es cero y el PDF indica No incluye IVA. Los servicios usan precios finales de cliente, sin desglose del fee.
 
-## Operaciones
+## Numeración y muestras
 
-- create_quote valida equipo, cliente, vigencia, cantidades y tarifas activas; obtiene los precios desde el catálogo, calcula en numeric y guarda una copia de precios, cuenta, empresa, condiciones y logo.
-- request_id permite repetir una solicitud tras un corte de red sin crear otra cotización. Reutilizarlo con datos distintos se rechaza. La UI lo renueva al completar una cotización.
-- set_quote_status bloquea la fila y comprueba la transición. Borrador puede pasar a enviada o cancelada; enviada puede pasar a aceptada, rechazada o cancelada. No se reabren estados terminales.
-- Una cotización vencida no puede enviarse ni aceptarse. Vencida es una condición calculada; se conserva su último estado comercial en el historial.
-- acquire_sheet_lock y release_sheet_lock se reservan al servidor. Serializan los cambios en Google Sheets.
-- finish_sheet_sync comprueba y bloquea la versión de la cotización antes de marcarla sincronizada. Si cambió durante el envío, queda pendiente.
+get_document_numbering y save_document_numbering leen y confirman las series de cotización y OC. El prefijo, último número y cantidad de dígitos son configurables. Los espacios y guiones se conservan.
 
-El servidor puede guardar la ruta del PDF y el estado de integración. La clave privada de servicio permanece exclusivamente en las funciones del servidor.
+No se inventa la serie de cotizaciones: inicia sin configurar. OC propone OC seguido de espacio y último número 2710, pendiente de confirmación. Los folios anteriores se conservan.
 
-## Archivos
+create_quote_v3 valida y guarda una cotización con las tarifas y condiciones originales. Para una real bloquea la fila de su contador y asigna un número único; para una muestra deja folio y quote_number nulos, sin modificar contadores ni generar pendiente en Sheets.
 
-quote-pdfs es privado. Solo el equipo autorizado o el servidor puede leerlo. El frontend obtiene un enlace firmado temporal después de comprobar la sesión.
+request_id serializa los reintentos: el mismo guardado devuelve la misma cotización. Datos distintos con la misma solicitud se rechazan. El procedimiento de creación antiguo solicita actualizar la página para impedir que se siga emitiendo la serie anterior.
 
-brand-assets permite leer logos y restringe las subidas al equipo. Los originales PNG/JPG se guardan con nombres nuevos, por lo que el logo que usó una cotización anterior permanece disponible.
+convert_quote_to_oc requiere una cotización real, aceptada, vigente y no eliminada. Bloquea la cotización y el contador; conserva folio y asigna oc_folio una sola vez. Repetir la operación devuelve la misma OC.
 
-## Importar el catálogo preparado
+## Vendedor e historial
 
-En Catálogo, seleccionar data/catalogo-em-2026.json tras iniciar sesión en el proyecto nuevo. Conserva las 194 cuentas y las 210 tarifas, incluidas las cuentas sin servicios cotizables. El CSV representa únicamente las cuentas con tarifas.
+La creación toma nombre y correo del usuario autenticado en el servidor; el cliente solo proporciona el WhatsApp manual. Nombre, correo y WhatsApp quedan guardados en la cotización.
 
-Los archivos de costos y comisión son internos. Los objetos importados contienen precios finales del cliente; las cotizaciones y PDF no incluyen un desglose del Fee EM.
+Los históricos sin vendedor conocido mantienen esos campos vacíos. Modificar el perfil posteriormente no cambia documentos anteriores.
 
-## Verificación realizada
+set_quote_status conserva el historial y aplica las transiciones comerciales originales. Las muestras y eliminadas no participan en esas transiciones.
 
-El esquema completo se ejecutó en PostgreSQL WASM mediante PGlite 0.5.16 con las estructuras de Auth y Storage simuladas.
+delete_quote realiza eliminación lógica con confirmación en pantalla. Conserva la fila, conceptos, eventos y folio; no devuelve números al contador. Las cotizaciones con OC no pueden eliminarse.
 
-Pasaron **30 comprobaciones**: acceso anónimo y externo denegado, equipo autorizado, folio, idempotencia, totales sin IVA, precios históricos tras cambios del catálogo, transiciones e historial, permisos de configuración, exclusión mutua de Sheets y finalización por versión.
+## PDF y Google Sheets
 
-Para reproducir esta prueba aislada:
+quote-pdfs permanece privado. Las funciones comprueban la sesión y la lectura por RLS antes de usar permisos administrativos. Los enlaces de archivo duran diez minutos; la hoja conserva un enlace al detalle autenticado de la aplicación.
 
-~~~text
-cd tests/database
-npm ci
-npm test
-~~~
+brand-assets admite lectura de logos y subidas del equipo. El logo original de EM está embebido también en el generador para que el PDF funcione sin una subida adicional.
 
-Este motor local ejecuta PostgreSQL; no sustituye la verificación de Supabase Auth, Storage, la función desplegada y Google Sheets con las cuentas reales. La concurrencia de varias conexiones de PostgreSQL y los avisos de seguridad del proyecto deben verificarse al conectar el proyecto nuevo.
+Cada cambio comercial queda pendiente en sheet_sync. acquire_sheet_lock y release_sheet_lock reservan un bloqueo global para evitar filas duplicadas. finish_sheet_sync confirma la versión; si cambió durante el envío, queda pendiente de reintento. Los fallos no revierten el guardado de la cotización.
+
+Las muestras no se envían a la hoja comercial. Las cotizaciones reales eliminadas actualizan su fila como Eliminada si ya existía.
+
+## Verificación
+
+El esquema original y la actualización se ejecutan en bases aisladas de PostgreSQL WASM (PGlite 0.5.16), con Auth y Storage simulados. Se prueban permisos, importes, idempotencia, conservación de históricos, vendedor, numeración, muestras, conversión y eliminación.
+
+Desde la raíz del proyecto:
+- npm ci --prefix tests/database
+- npm test --prefix tests/database
+- node tests/database/verify-v3.mjs
+
+La actualización V3 se ejecuta varias veces en las pruebas para comprobar que no reinicie contadores ni cambie datos existentes. El flujo manual de GitHub ejecuta ambas verificaciones antes de construir.
+
+Las pruebas locales no sustituyen la comprobación de Auth, Storage, la función desplegada y la autorización real de Google en las cuentas del usuario.
 

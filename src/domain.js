@@ -59,6 +59,8 @@ function mexicoToday() {
 }
 
 export function effectiveStatus(quote) {
+  if (quote.deleted_at) return 'eliminada';
+  if (quote.is_sample) return 'muestra';
   const validity = dateOnly(quote.valid_until);
   if (!validity || !['borrador', 'enviada'].includes(quote.status)) return quote.status;
   const today = mexicoToday();
@@ -75,6 +77,9 @@ function textField(value, label, max, required = false) {
 
 export function validateQuoteInput(input, rates) {
   if (!input || typeof input !== 'object') throw new Error('Los datos de la cotización no son válidos.');
+  if (input.is_sample !== undefined && typeof input.is_sample !== 'boolean') throw new Error('Selecciona cotización real o de muestra.');
+  const whatsapp = textField(input.seller_whatsapp, 'WhatsApp del vendedor', 40);
+  if (whatsapp && (!/^[+()\d .-]+$/.test(whatsapp) || !/^\d{7,15}$/.test(whatsapp.replace(/\D/g, '')))) throw new Error('El WhatsApp debe incluir entre 7 y 15 dígitos; puedes usar +, espacios y guiones.');
   const clientName = textField(input.client_name, 'Cliente', 200, true);
   const email = textField(input.client_email, 'Correo', 254);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('El correo del cliente no es válido.');
@@ -96,7 +101,8 @@ export function validateQuoteInput(input, rates) {
   });
   const totals = calculateTotals(pricedItems, input.discount_amount ?? 0);
   return {
-    ...input,
+    is_sample: input.is_sample === true,
+    seller_whatsapp: whatsapp,
     client_name: clientName,
     client_email: email,
     client_company: textField(input.client_company, 'Empresa', 200),
@@ -262,3 +268,8 @@ export function parseCatalogJson(text) {
   return { accounts, rates };
 }
 
+
+export function quoteLabel(quote) {
+  return quote.is_sample ? 'Muestra sin folio' : (quote.folio || 'Pendiente de folio');
+}
+export function isRealQuote(quote) { return !quote.is_sample && !quote.deleted_at; }

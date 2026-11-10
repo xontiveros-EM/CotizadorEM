@@ -148,3 +148,16 @@ test('JSON rejects duplicate profiles, duplicate services, unknown references an
   for (const active of ['false', 0, null]) assert.throws(() => parse({ accounts: [{ ...account, active }], rates: [] }));
 });
 
+
+test('las muestras y eliminadas no se confunden con el seguimiento comercial',()=>{
+ assert.equal(effectiveStatus({status:'borrador',valid_until:'2000-01-01',is_sample:true}),'muestra');
+ assert.equal(effectiveStatus({status:'aceptada',deleted_at:'2026-11-09T12:00:00Z'}),'eliminada');
+});
+test('validación controla el tipo y WhatsApp y elimina campos comerciales enviados por el cliente',()=>{
+ const parsed=validateQuoteInput({...validInput,is_sample:true,seller_whatsapp:'+52 55.1234.5678',folio:'OC 1',total:0,seller_name:'Falso'},rates);
+ assert.equal(parsed.is_sample,true);assert.equal(parsed.seller_whatsapp,'+52 55.1234.5678');
+ assert.equal(parsed.folio,undefined);assert.equal(parsed.total,undefined);assert.equal(parsed.seller_name,undefined);
+ for(const seller_whatsapp of ['abc','123456','1234567890123456','=IMPORTXML()'])assert.throws(()=>validateQuoteInput({...validInput,seller_whatsapp},rates),/WhatsApp/);
+ assert.throws(()=>validateQuoteInput({...validInput,is_sample:'false'},rates),/muestra/);
+});
+

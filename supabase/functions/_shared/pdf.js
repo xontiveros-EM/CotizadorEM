@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { EM_LOGO_DATA } from './brand.js';
 
 const INK = rgb(0.06, 0.06, 0.06);
 const MUTED = rgb(0.42, 0.42, 0.42);
@@ -64,16 +65,18 @@ function decodeDataLogo(url) {
  */
 export async function generateQuotePdf({ quote, items, company = {}, logoBytes, logoType }) {
   if (!quote || !Array.isArray(items)) throw new Error('Cotización incompleta.');
+  if (quote.deleted_at) throw new Error('Esta cotización fue eliminada y no admite nuevos documentos.');
   const doc = await PDFDocument.create();
   const regular = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const companyName = quote.company_name || company.name || 'Cotizador EM Agency';
-  const folio = quote.folio || 'VISTA PREVIA';
+  const isSample = quote.is_sample === true;
+  const folio = isSample ? 'COTIZACIÓN DE MUESTRA' : quote.folio || 'SIN FOLIO OFICIAL';
   doc.setTitle(`${folio} - ${companyName}`);
   doc.setAuthor(companyName);
   doc.setSubject('Cotización en MXN. No incluye IVA.');
   let logo = null;
-  const localLogo = decodeDataLogo(quote.logo_url || company.logo_url);
+  const localLogo = decodeDataLogo(quote.logo_url || company.logo_url) || decodeDataLogo(EM_LOGO_DATA);
   const imageBytes = logoBytes || localLogo?.bytes;
   const imageType = logoType || localLogo?.type;
   if (imageBytes?.length) {
@@ -127,8 +130,9 @@ export async function generateQuotePdf({ quote, items, company = {}, logoBytes, 
       const nameLines = wrapPdfText(companyName, bold, 16, width - 190);
       nameLines.slice(0, 2).forEach((name, index) => line(name, MARGIN, PAPER[1] - 48 - index * 20, 16, bold));
     }
-    right('PROPUESTA COMERCIAL', PAPER[0] - MARGIN, PAPER[1] - 44, 10, bold, ACCENT);
-    right(folio, PAPER[0] - MARGIN, PAPER[1] - 64, 11, bold);
+    right(isSample ? 'COTIZACIÓN DE MUESTRA' : 'PROPUESTA COMERCIAL', PAPER[0] - MARGIN, PAPER[1] - 44, 10, bold, ACCENT);
+    const headerRef = isSample ? 'SIN VALIDEZ COMERCIAL' : folio;
+    wrapPdfText(headerRef, bold, 10, 295).slice(0, 2).forEach((text, index) => right(text, PAPER[0] - MARGIN, PAPER[1] - 64 - index * 13, 10, bold));
     page.drawLine({ start: { x: MARGIN, y: PAPER[1] - 112 }, end: { x: PAPER[0] - MARGIN, y: PAPER[1] - 112 }, thickness: 0.7, color: INK });
     y = PAPER[1] - 135;
   };
@@ -142,7 +146,12 @@ export async function generateQuotePdf({ quote, items, company = {}, logoBytes, 
   paragraph('Conectamos marcas y creadores.', { size: 22, font: bold });
   paragraph('PROPUESTA DE COLABORACIÓN  /  INSTAGRAM', { size: 8, color: MUTED });
   y -= 10;
-  if (String(folio).startsWith('VISTA-')) {
+  if (isSample) {
+    paragraph('COTIZACIÓN DE MUESTRA - sin folio oficial', { size: 11, font: bold });
+    paragraph('Documento de ejemplo. No constituye una cotización real ni una orden de compra.', { size: 9, color: MUTED });
+    y -= 7;
+  }
+  if (!isSample && String(folio).startsWith('VISTA-')) {
     paragraph('VISTA LOCAL - sin folio definitivo', { size: 11, font: bold, color: ACCENT });
     y -= 7;
   }
@@ -152,6 +161,16 @@ export async function generateQuotePdf({ quote, items, company = {}, logoBytes, 
   if (quote.client_company) paragraph(quote.client_company, { color: MUTED });
   if (quote.client_email) paragraph(quote.client_email, { size: 9, color: MUTED });
   if (quote.campaign) { y -= 7; paragraph(`Campaña: ${quote.campaign}`, { font: bold }); }
+  if (quote.oc_folio && !isSample) {
+    y -= 7; paragraph(`Orden de compra: ${quote.oc_folio}`, { font: bold });
+    paragraph(`Cotización de origen: ${folio}`, { size: 9, color: MUTED });
+  }
+  if (quote.seller_name || quote.seller_email || quote.seller_whatsapp) {
+    y -= 10; paragraph('Tu contacto en EM Agency', { size: 9, font: bold });
+    if (quote.seller_name) paragraph(quote.seller_name, { size: 10 });
+    if (quote.seller_email) paragraph(`Correo: ${quote.seller_email}`, { size: 9, color: MUTED });
+    if (quote.seller_whatsapp) paragraph(`WhatsApp: ${quote.seller_whatsapp}`, { size: 9, color: MUTED });
+  }
   y -= 20;
 
   const cols = [MARGIN, 297, 341, 435, PAPER[0] - MARGIN];

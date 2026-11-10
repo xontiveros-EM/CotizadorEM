@@ -24,6 +24,7 @@ test('archivo único para el editor genera PDF y mantiene comprobación de sesi�
    const p=new URL(url).pathname;
    if(p==='/auth/v1/user')return Response.json({id:'11111111-1111-4111-8111-111111111111',aud:'authenticated'});
    if(p==='/rest/v1/quotes'&&(!options.method||options.method==='GET'))return Response.json({id:'22222222-2222-4222-8222-222222222222',folio:'COT-2026-000001',status:'borrador',company_name:'Cotizador EM Agency',client_name:'Cliente Prueba',updated_at:'2026-11-09T12:00:00Z',created_at:'2026-11-09T12:00:00Z',valid_until:'2026-12-01',subtotal:100,total:100,discount_amount:0});
+   if(p==='/rest/v1/quotes'&&options.method==='PATCH')return Response.json({id:'22222222-2222-4222-8222-222222222222'});
    if(p==='/rest/v1/quote_items')return Response.json([{instagram_handle:'prueba',service:'IG Story',quantity:1,unit_price:100,line_total:100}]);
    if(p==='/rest/v1/company_settings')return Response.json({id:1,name:'Cotizador EM Agency'});
    if(p.includes('/object/sign/'))return Response.json({signedURL:'/object/sign/quote-pdfs/test.pdf?token=test'});
@@ -35,5 +36,43 @@ test('archivo único para el editor genera PDF y mantiene comprobación de sesi�
    assert.equal(response.status,200);const data=await response.json();assert.ok(data.pdf_url);assert.equal(data.sync_status,'pending');
   }finally{globalThis.fetch=previous;}
  }finally{if(priorDeno===undefined)delete globalThis.Deno;else globalThis.Deno=priorDeno;}
+});
+
+
+async function handlerForOrigins(values) {
+ let source=await fs.readFile(new URL('../manual/quote-documents.ts',import.meta.url),'utf8');
+ source=source.replace("'npm:@supabase/supabase-js@2.119.0'",JSON.stringify(import.meta.resolve('@supabase/supabase-js')))
+ .replace("'npm:pdf-lib@1.17.1'",JSON.stringify(import.meta.resolve('pdf-lib')));
+ let handler;
+ globalThis.Deno={env:{get:key=>values[key]},serve:fn=>{handler=fn;}};
+ const javascript=stripTypeScriptTypes(source,{mode:'strip'})+'\n// origins '+crypto.randomUUID();
+ await import('data:text/javascript;base64,'+Buffer.from(javascript).toString('base64'));
+ return handler;
+}
+test('PDF permite los orígenes previstos sin Secrets y sigue exigiendo sesión',async()=>{
+ const previous=globalThis.Deno;
+ try {
+  const handler=await handlerForOrigins({SUPABASE_URL:'https://test.supabase.co'});
+  for(const origin of ['https://xontiveros-em.github.io','http://127.0.0.1:4173','http://localhost:4173']){
+   const response=await handler(new Request('https://test/functions/v1/quote-documents',{method:'OPTIONS',headers:{Origin:origin,'Access-Control-Request-Headers':'authorization, apikey, content-type, x-retry-count'}}));
+   assert.equal(response.status,204);assert.equal(response.headers.get('Access-Control-Allow-Origin'),origin);
+   assert.ok(response.headers.get('Access-Control-Allow-Headers').includes('x-retry-count'));
+  }
+  for(const origin of ['https://unknown.example.test','null']){
+   const response=await handler(new Request('https://test/functions/v1/quote-documents',{method:'OPTIONS',headers:{Origin:origin}}));
+   assert.equal(response.status,403);assert.notEqual(response.headers.get('Access-Control-Allow-Origin'),origin);
+  }
+  assert.equal((await handler(new Request('https://test/functions/v1/quote-documents',{method:'POST',headers:{Origin:'https://xontiveros-em.github.io'}}))).status,401);
+ }finally{if(previous===undefined)delete globalThis.Deno;else globalThis.Deno=previous;}
+});
+test('un origen configurado sustituye los valores por defecto',async()=>{
+ const previous=globalThis.Deno;
+ try {
+  const handler=await handlerForOrigins({SUPABASE_URL:'https://test.supabase.co',ALLOWED_ORIGIN:'https://interno.example.test'});
+  const allowed=await handler(new Request('https://test/functions/v1/quote-documents',{method:'OPTIONS',headers:{Origin:'https://interno.example.test'}}));
+  assert.equal(allowed.status,204);assert.equal(allowed.headers.get('Access-Control-Allow-Origin'),'https://interno.example.test');
+  const refused=await handler(new Request('https://test/functions/v1/quote-documents',{method:'OPTIONS',headers:{Origin:'https://xontiveros-em.github.io'}}));
+  assert.equal(refused.status,403);assert.notEqual(refused.headers.get('Access-Control-Allow-Origin'),'https://xontiveros-em.github.io');
+ }finally{if(previous===undefined)delete globalThis.Deno;else globalThis.Deno=previous;}
 });
 
